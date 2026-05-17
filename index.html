@@ -56,15 +56,8 @@
 
     /* Blink when finished */
     @keyframes blink {
-
-      0%,
-      100% {
-        opacity: 1;
-      }
-
-      50% {
-        opacity: 0.12;
-      }
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.12; }
     }
 
     #timer.finished {
@@ -90,38 +83,17 @@
       border-radius: 50%;
       transition: opacity 0.2s ease, transform 0.15s ease;
       outline: none;
+      -webkit-tap-highlight-color: transparent;
     }
 
-    .btn:hover {
-      opacity: 0.6;
-      transform: scale(1.12);
-    }
+    .btn:hover  { opacity: 0.6; transform: scale(1.12); }
+    .btn:active { transform: scale(0.93); }
 
-    .btn:active {
-      transform: scale(0.93);
-    }
+    #startBtn { width: 48px; height: 48px; }
+    #startBtn svg { width: 28px; height: 28px; fill: #fff; }
 
-    #startBtn {
-      width: 48px;
-      height: 48px;
-    }
-
-    #startBtn svg {
-      width: 28px;
-      height: 28px;
-      fill: #fff;
-    }
-
-    #resetBtn {
-      width: 38px;
-      height: 38px;
-      opacity: 0.45;
-    }
-
-    #resetBtn:hover {
-      opacity: 0.9;
-    }
-
+    #resetBtn { width: 38px; height: 38px; opacity: 0.45; }
+    #resetBtn:hover { opacity: 0.9; }
     #resetBtn svg {
       width: 20px;
       height: 20px;
@@ -132,7 +104,7 @@
       stroke-linejoin: round;
     }
 
-    /* ── Subtle hint ── */
+    /* ── Subtle desktop hint ── */
     #hint {
       position: fixed;
       bottom: 1rem;
@@ -142,12 +114,82 @@
       text-transform: uppercase;
       pointer-events: none;
     }
+
+    /* ── Fullscreen button — mobile only ── */
+    #fullscreenBtn {
+      position: fixed;
+      top: 1.1rem;
+      right: 1.2rem;
+      width: 36px;
+      height: 36px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      opacity: 0.28;
+      display: none;           /* hidden on desktop */
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: opacity 0.2s ease, transform 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+
+    #fullscreenBtn svg {
+      width: 22px;
+      height: 22px;
+      stroke: #fff;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    #fullscreenBtn:active {
+      opacity: 0.9;
+      transform: scale(0.9);
+    }
+
+    /* Show fullscreen button only on touch/mobile */
+    @media (pointer: coarse) {
+      #fullscreenBtn { display: flex; }
+      #hint { display: none; }
+    }
+
+    /* Hidden input to summon mobile keyboard */
+    #mobileInput {
+      position: fixed;
+      top: -9999px;
+      left: -9999px;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      font-size: 16px; /* prevents iOS zoom */
+    }
   </style>
 </head>
 
 <body>
 
   <div id="timer" class="editable">00:00:00</div>
+
+  <!-- Mobile fullscreen button -->
+  <button id="fullscreenBtn" aria-label="Toggle fullscreen">
+    <!-- Expand icon (shown when not fullscreen) -->
+    <svg id="iconExpand" viewBox="0 0 24 24">
+      <polyline points="15 3 21 3 21 9"/>
+      <polyline points="9 21 3 21 3 15"/>
+      <line x1="21" y1="3" x2="14" y2="10"/>
+      <line x1="3"  y1="21" x2="10" y2="14"/>
+    </svg>
+    <!-- Compress icon (shown when fullscreen) -->
+    <svg id="iconCompress" viewBox="0 0 24 24" style="display:none;">
+      <polyline points="4 14 10 14 10 20"/>
+      <polyline points="20 10 14 10 14 4"/>
+      <line x1="10" y1="14" x2="3"  y2="21"/>
+      <line x1="21" y1="3"  x2="14" y2="10"/>
+    </svg>
+  </button>
 
   <div class="controls">
     <!-- Reset -->
@@ -164,31 +206,41 @@
         <polygon points="5,3 19,12 5,21" />
       </svg>
       <svg id="iconPause" viewBox="0 0 24 24" style="display:none;">
-        <rect x="6" y="4" width="4" height="16" rx="1" />
+        <rect x="6"  y="4" width="4" height="16" rx="1" />
         <rect x="14" y="4" width="4" height="16" rx="1" />
       </svg>
     </button>
   </div>
 
+  <div id="hint">click time to set &nbsp;·&nbsp; space to start &nbsp;·&nbsp; r to reset</div>
 
+  <!-- Hidden input: focuses on mobile tap to summon numeric keyboard -->
+  <input id="mobileInput" type="tel" inputmode="numeric" autocomplete="off" />
 
   <script>
     /* ────────── State ────────── */
-    let targetMs = 0;       // total countdown duration set by user (ms)
-    let remaining = 0;       // ms left when paused / running
-    let startedAt = null;    // performance.now() when last unpaused
-    let rafId = null;
-    let running = false;
-    let editing = false;
+    let targetMs  = 0;
+    let remaining = 0;
+    let startedAt = null;
+    let rafId     = null;
+    let running   = false;
+    let editing   = false;
 
-    // 6-digit ring buffer: [H1, H2, M1, M2, S1, S2]
+    // 6-digit ring buffer [H1,H2,M1,M2,S1,S2]
     let digits = [0, 0, 0, 0, 0, 0];
 
-    const timerEl = document.getElementById('timer');
-    const startBtn = document.getElementById('startBtn');
-    const resetBtn = document.getElementById('resetBtn');
-    const iconPlay = document.getElementById('iconPlay');
-    const iconPause = document.getElementById('iconPause');
+    const timerEl       = document.getElementById('timer');
+    const startBtn      = document.getElementById('startBtn');
+    const resetBtn      = document.getElementById('resetBtn');
+    const iconPlay      = document.getElementById('iconPlay');
+    const iconPause     = document.getElementById('iconPause');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const iconExpand    = document.getElementById('iconExpand');
+    const iconCompress  = document.getElementById('iconCompress');
+    const mobileInput   = document.getElementById('mobileInput');
+
+    /* ────────── Touch detection ────────── */
+    const isTouch = () => ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
     /* ────────── Helpers ────────── */
     const pad = n => String(n).padStart(2, '0');
@@ -219,11 +271,25 @@
         `${pad(digits[0] * 10 + digits[1])}:${pad(digits[2] * 10 + digits[3])}:${pad(digits[4] * 10 + digits[5])}`;
     }
 
+    /* ────────── Push a single digit ────────── */
+    function pushDigit(n) {
+      digits.shift();
+      digits.push(n);
+      renderDigits();
+      targetMs = remaining = msFromDigits(digits);
+    }
+
+    function popDigit() {
+      digits.unshift(0);
+      digits.pop();
+      renderDigits();
+      targetMs = remaining = msFromDigits(digits);
+    }
+
     /* ────────── Tick ────────── */
     function tick() {
       const elapsed = performance.now() - startedAt;
       remaining = targetMs - elapsed;
-
       if (remaining <= 0) {
         remaining = 0;
         timerEl.textContent = '00:00:00';
@@ -231,7 +297,6 @@
         onFinish();
         return;
       }
-
       timerEl.textContent = formatMs(remaining);
       rafId = requestAnimationFrame(tick);
     }
@@ -242,37 +307,35 @@
       running = false;
       timerEl.classList.remove('running');
       timerEl.classList.add('editable');
-      iconPlay.style.display = '';
+      iconPlay.style.display  = '';
       iconPause.style.display = 'none';
     }
 
     function startTimer() {
-      if (running) return;
-      if (remaining <= 0) return;
-      running = true;
+      if (running || remaining <= 0) return;
+      running   = true;
       startedAt = performance.now() - (targetMs - remaining);
-      editing = false;
+      editing   = false;
       timerEl.classList.remove('editable', 'finished');
       timerEl.classList.add('running');
-      iconPlay.style.display = 'none';
+      iconPlay.style.display  = 'none';
       iconPause.style.display = '';
       rafId = requestAnimationFrame(tick);
     }
 
     function pauseTimer() {
       if (!running) return;
-      // snapshot how much is left
       remaining = Math.max(0, targetMs - (performance.now() - startedAt));
-      targetMs = remaining;
-      digits = digitsFromMs(remaining);
+      targetMs  = remaining;
+      digits    = digitsFromMs(remaining);
       _stop();
     }
 
     function resetTimer() {
       _stop();
       timerEl.classList.remove('finished');
-      digits = [0, 0, 0, 0, 0, 0];
-      targetMs = 0;
+      digits    = [0, 0, 0, 0, 0, 0];
+      targetMs  = 0;
       remaining = 0;
       timerEl.textContent = '00:00:00';
     }
@@ -288,8 +351,9 @@
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         [0, 0.26, 0.52].forEach(t => {
           const osc = ctx.createOscillator();
-          const g = ctx.createGain();
-          osc.connect(g); g.connect(ctx.destination);
+          const g   = ctx.createGain();
+          osc.connect(g);
+          g.connect(ctx.destination);
           osc.type = 'sine';
           osc.frequency.value = 880;
           g.gain.setValueAtTime(0.4, ctx.currentTime + t);
@@ -300,7 +364,7 @@
       } catch (e) { }
     }
 
-    /* ────────── Input: click to edit ────────── */
+    /* ────────── Timer tap / click → enter edit mode ────────── */
     timerEl.addEventListener('click', () => {
       if (running) return;
       editing = true;
@@ -308,63 +372,99 @@
       digits = [0, 0, 0, 0, 0, 0];
       renderDigits();
       targetMs = remaining = 0;
+
+      // On touch devices, focus the hidden input to summon the keyboard
+      if (isTouch()) {
+        mobileInput.value = '';
+        mobileInput.focus();
+      }
     });
 
-    /* ────────── Keyboard ────────── */
+    /* ────────── Mobile hidden input → digit stream ────────── */
+    mobileInput.addEventListener('input', () => {
+      if (!editing || running) { mobileInput.value = ''; return; }
+      const raw = mobileInput.value.replace(/\D/g, '');
+      for (const ch of raw) pushDigit(Number(ch));
+      mobileInput.value = '';
+    });
+
+    // Backspace on mobile keyboard
+    mobileInput.addEventListener('keydown', e => {
+      if (e.key === 'Backspace' && editing && !running) popDigit();
+      // Enter / Go = start
+      if (e.key === 'Enter') {
+        mobileInput.blur();
+        editing   = false;
+        targetMs  = msFromDigits(digits);
+        remaining = targetMs;
+        startTimer();
+      }
+    });
+
+    /* ────────── Desktop keyboard ────────── */
     document.addEventListener('keydown', e => {
-      // Space → start / pause
+      // Ignore if the hidden mobile input is focused (handled above)
+      if (document.activeElement === mobileInput) return;
+
       if (e.code === 'Space') {
         e.preventDefault();
-        if (running) {
-          pauseTimer();
-        } else {
-          targetMs = msFromDigits(digits);
-          remaining = targetMs;
-          startTimer();
-        }
+        if (running) { pauseTimer(); }
+        else { targetMs = msFromDigits(digits); remaining = targetMs; startTimer(); }
         return;
       }
 
-      // R → reset (when not running)
       if (e.code === 'KeyR' && !running) {
-        resetTimer();
+        editing = false;
+        digits  = [0, 0, 0, 0, 0, 0];
+        targetMs = 0; remaining = 0;
+        timerEl.classList.remove('finished');
+        timerEl.textContent = '00:00:00';
         return;
       }
 
-      // Digit entry
       if (editing && !running && e.key >= '0' && e.key <= '9') {
-        digits.shift();
-        digits.push(Number(e.key));
-        renderDigits();
-        targetMs = remaining = msFromDigits(digits);
+        pushDigit(Number(e.key));
         return;
       }
 
-      // Backspace
       if (editing && !running && e.code === 'Backspace') {
-        digits.unshift(0);
-        digits.pop();
-        renderDigits();
-        targetMs = remaining = msFromDigits(digits);
+        popDigit();
       }
     });
 
     /* ────────── Button clicks ────────── */
     startBtn.addEventListener('click', () => {
       editing = false;
-      if (running) {
-        pauseTimer();
-      } else {
-        targetMs = msFromDigits(digits);
-        remaining = targetMs;
-        startTimer();
-      }
+      if (running) { pauseTimer(); }
+      else { targetMs = msFromDigits(digits); remaining = targetMs; startTimer(); }
     });
 
     resetBtn.addEventListener('click', () => {
       editing = false;
       resetTimer();
     });
+
+    /* ────────── Fullscreen (mobile) ────────── */
+    fullscreenBtn.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        (document.documentElement.requestFullscreen
+          || document.documentElement.webkitRequestFullscreen
+          || (() => {})).call(document.documentElement);
+      } else {
+        (document.exitFullscreen
+          || document.webkitExitFullscreen
+          || (() => {})).call(document);
+      }
+    });
+
+    document.addEventListener('fullscreenchange', updateFsIcon);
+    document.addEventListener('webkitfullscreenchange', updateFsIcon);
+
+    function updateFsIcon() {
+      const fs = !!document.fullscreenElement || !!document.webkitFullscreenElement;
+      iconExpand.style.display   = fs ? 'none' : '';
+      iconCompress.style.display = fs ? '' : 'none';
+    }
   </script>
 </body>
 
