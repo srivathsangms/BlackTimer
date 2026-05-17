@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200&display=swap" rel="stylesheet">
+  <style>
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* ── Timer display ── */
+    #timer {
+      font-size: 22vw;
+      font-weight: 100;
+      letter-spacing: -0.03em;
+      color: #fff;
+      line-height: 1;
+      user-select: none;
+      transition: color 0.4s ease;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum";
+    }
+
+    #timer.running {
+      color: #e0e0e0;
+    }
+
+    #timer.editable {
+      cursor: text;
+    }
+
+    /* Blink when finished */
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.12;
+      }
+    }
+
+    #timer.finished {
+      animation: blink 0.55s ease infinite;
+    }
+
+    /* ── Controls ── */
+    .controls {
+      position: fixed;
+      bottom: 2.8rem;
+      display: flex;
+      align-items: center;
+      gap: 1.2rem;
+    }
+
+    .btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: opacity 0.2s ease, transform 0.15s ease;
+      outline: none;
+    }
+
+    .btn:hover {
+      opacity: 0.6;
+      transform: scale(1.12);
+    }
+
+    .btn:active {
+      transform: scale(0.93);
+    }
+
+    #startBtn {
+      width: 48px;
+      height: 48px;
+    }
+
+    #startBtn svg {
+      width: 28px;
+      height: 28px;
+      fill: #fff;
+    }
+
+    #resetBtn {
+      width: 38px;
+      height: 38px;
+      opacity: 0.45;
+    }
+
+    #resetBtn:hover {
+      opacity: 0.9;
+    }
+
+    #resetBtn svg {
+      width: 20px;
+      height: 20px;
+      stroke: #fff;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ── Subtle hint ── */
+    #hint {
+      position: fixed;
+      bottom: 1rem;
+      font-size: 0.62rem;
+      letter-spacing: 0.14em;
+      color: rgba(255, 255, 255, 0.16);
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="timer" class="editable">00:00:00</div>
+
+  <div class="controls">
+    <!-- Reset -->
+    <button class="btn" id="resetBtn" title="Reset" aria-label="Reset timer">
+      <svg viewBox="0 0 24 24">
+        <polyline points="1 4 1 10 7 10" />
+        <path d="M3.51 15a9 9 0 1 0 .49-3.68" />
+      </svg>
+    </button>
+
+    <!-- Start / Pause -->
+    <button class="btn" id="startBtn" title="Start / Pause" aria-label="Start or pause timer">
+      <svg id="iconPlay" viewBox="0 0 24 24">
+        <polygon points="5,3 19,12 5,21" />
+      </svg>
+      <svg id="iconPause" viewBox="0 0 24 24" style="display:none;">
+        <rect x="6" y="4" width="4" height="16" rx="1" />
+        <rect x="14" y="4" width="4" height="16" rx="1" />
+      </svg>
+    </button>
+  </div>
+
+
+
+  <script>
+    /* ────────── State ────────── */
+    let targetMs = 0;       // total countdown duration set by user (ms)
+    let remaining = 0;       // ms left when paused / running
+    let startedAt = null;    // performance.now() when last unpaused
+    let rafId = null;
+    let running = false;
+    let editing = false;
+
+    // 6-digit ring buffer: [H1, H2, M1, M2, S1, S2]
+    let digits = [0, 0, 0, 0, 0, 0];
+
+    const timerEl = document.getElementById('timer');
+    const startBtn = document.getElementById('startBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const iconPlay = document.getElementById('iconPlay');
+    const iconPause = document.getElementById('iconPause');
+
+    /* ────────── Helpers ────────── */
+    const pad = n => String(n).padStart(2, '0');
+
+    function msFromDigits(d) {
+      const h = d[0] * 10 + d[1];
+      const m = d[2] * 10 + d[3];
+      const s = d[4] * 10 + d[5];
+      return (h * 3600 + m * 60 + s) * 1000;
+    }
+
+    function digitsFromMs(ms) {
+      const t = Math.max(0, Math.round(ms / 1000));
+      const h = Math.floor(t / 3600);
+      const m = Math.floor((t % 3600) / 60);
+      const s = t % 60;
+      return [Math.floor(h / 10), h % 10, Math.floor(m / 10), m % 10, Math.floor(s / 10), s % 10];
+    }
+
+    function formatMs(ms) {
+      ms = Math.max(0, ms);
+      const t = Math.ceil(ms / 1000);
+      return `${pad(Math.floor(t / 3600))}:${pad(Math.floor((t % 3600) / 60))}:${pad(t % 60)}`;
+    }
+
+    function renderDigits() {
+      timerEl.textContent =
+        `${pad(digits[0] * 10 + digits[1])}:${pad(digits[2] * 10 + digits[3])}:${pad(digits[4] * 10 + digits[5])}`;
+    }
+
+    /* ────────── Tick ────────── */
+    function tick() {
+      const elapsed = performance.now() - startedAt;
+      remaining = targetMs - elapsed;
+
+      if (remaining <= 0) {
+        remaining = 0;
+        timerEl.textContent = '00:00:00';
+        _stop();
+        onFinish();
+        return;
+      }
+
+      timerEl.textContent = formatMs(remaining);
+      rafId = requestAnimationFrame(tick);
+    }
+
+    /* ────────── Controls ────────── */
+    function _stop() {
+      cancelAnimationFrame(rafId);
+      running = false;
+      timerEl.classList.remove('running');
+      timerEl.classList.add('editable');
+      iconPlay.style.display = '';
+      iconPause.style.display = 'none';
+    }
+
+    function startTimer() {
+      if (running) return;
+      if (remaining <= 0) return;
+      running = true;
+      startedAt = performance.now() - (targetMs - remaining);
+      editing = false;
+      timerEl.classList.remove('editable', 'finished');
+      timerEl.classList.add('running');
+      iconPlay.style.display = 'none';
+      iconPause.style.display = '';
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function pauseTimer() {
+      if (!running) return;
+      // snapshot how much is left
+      remaining = Math.max(0, targetMs - (performance.now() - startedAt));
+      targetMs = remaining;
+      digits = digitsFromMs(remaining);
+      _stop();
+    }
+
+    function resetTimer() {
+      _stop();
+      timerEl.classList.remove('finished');
+      digits = [0, 0, 0, 0, 0, 0];
+      targetMs = 0;
+      remaining = 0;
+      timerEl.textContent = '00:00:00';
+    }
+
+    function onFinish() {
+      timerEl.classList.add('finished');
+      beep();
+    }
+
+    /* ────────── Beep ────────── */
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [0, 0.26, 0.52].forEach(t => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.connect(g); g.connect(ctx.destination);
+          osc.type = 'sine';
+          osc.frequency.value = 880;
+          g.gain.setValueAtTime(0.4, ctx.currentTime + t);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.22);
+          osc.start(ctx.currentTime + t);
+          osc.stop(ctx.currentTime + t + 0.24);
+        });
+      } catch (e) { }
+    }
+
+    /* ────────── Input: click to edit ────────── */
+    timerEl.addEventListener('click', () => {
+      if (running) return;
+      editing = true;
+      timerEl.classList.remove('finished');
+      digits = [0, 0, 0, 0, 0, 0];
+      renderDigits();
+      targetMs = remaining = 0;
+    });
+
+    /* ────────── Keyboard ────────── */
+    document.addEventListener('keydown', e => {
+      // Space → start / pause
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (running) {
+          pauseTimer();
+        } else {
+          targetMs = msFromDigits(digits);
+          remaining = targetMs;
+          startTimer();
+        }
+        return;
+      }
+
+      // R → reset (when not running)
+      if (e.code === 'KeyR' && !running) {
+        resetTimer();
+        return;
+      }
+
+      // Digit entry
+      if (editing && !running && e.key >= '0' && e.key <= '9') {
+        digits.shift();
+        digits.push(Number(e.key));
+        renderDigits();
+        targetMs = remaining = msFromDigits(digits);
+        return;
+      }
+
+      // Backspace
+      if (editing && !running && e.code === 'Backspace') {
+        digits.unshift(0);
+        digits.pop();
+        renderDigits();
+        targetMs = remaining = msFromDigits(digits);
+      }
+    });
+
+    /* ────────── Button clicks ────────── */
+    startBtn.addEventListener('click', () => {
+      editing = false;
+      if (running) {
+        pauseTimer();
+      } else {
+        targetMs = msFromDigits(digits);
+        remaining = targetMs;
+        startTimer();
+      }
+    });
+
+    resetBtn.addEventListener('click', () => {
+      editing = false;
+      resetTimer();
+    });
+  </script>
+</body>
+
+</html>
